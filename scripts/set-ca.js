@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // The one command to run on launch day. Paste in the real contract address
-// (and the trade URL to send buyers to) and it rewrites index.html, commits,
-// and pushes — Cloudflare Pages picks up the push and redeploys automatically.
+// and it rewrites index.html, commits, and pushes — Cloudflare Pages picks
+// up the push and redeploys automatically. The buy link is always
+// https://www.ponsfamily.com/launchpad/<CA>, so it's derived, not typed.
 //
 // This site is a compiled Claude Design bundle, not hand-written HTML: the
 // contract address and buy links live as ONE shared default value baked into
@@ -11,7 +12,7 @@
 // match counts still hold before trusting this script again.
 //
 // Usage:
-//   node scripts/set-ca.js 0xYourRealTokenAddress https://pons.fun/YourTokenTradePage
+//   node scripts/set-ca.js 0xYourRealTokenAddress
 
 const fs = require("fs");
 const path = require("path");
@@ -27,19 +28,14 @@ function fail(msg) {
 
 function main() {
   const ca = process.argv[2];
-  const buyUrl = process.argv[3];
 
-  if (!ca || !buyUrl) {
-    fail(
-      "Usage: node scripts/set-ca.js 0xYourRealTokenAddress https://pons.fun/YourTokenTradePage"
-    );
+  if (!ca) {
+    fail("Usage: node scripts/set-ca.js 0xYourRealTokenAddress");
   }
   if (!/^0x[0-9a-fA-F]{40}$/.test(ca)) {
     fail(`"${ca}" doesn't look like a valid contract address (expected 0x + 40 hex chars).`);
   }
-  if (!/^https?:\/\//.test(buyUrl)) {
-    fail(`"${buyUrl}" doesn't look like a valid URL (expected it to start with http:// or https://).`);
-  }
+  const buyUrl = `https://www.ponsfamily.com/launchpad/${ca}`;
 
   let html = fs.readFileSync(INDEX_PATH, "utf8");
 
