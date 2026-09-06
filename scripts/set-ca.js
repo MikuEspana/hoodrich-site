@@ -1,87 +1,51 @@
 #!/usr/bin/env node
 // The one command to run on launch day. Paste in the real contract address
-// and it rewrites index.html, commits, and pushes — Cloudflare Pages picks
-// up the push and redeploys automatically. The buy link is always
-// https://www.ponsfamily.com/launchpad/<CA>, so it's derived, not typed.
+// and it's live on hoodrich.bond immediately — no git push, no Cloudflare
+// Pages rebuild. It works by calling the /admin/set-ca Pages Function,
+// which writes the address to KV; a request-time Function
+// (functions/_middleware.js) reads that KV value and injects it into the
+// page on every request from then on.
 //
-// This site is a compiled Claude Design bundle, not hand-written HTML: the
-// contract address and buy links live as ONE shared default value baked into
-// a component's schema + fallback code (`0x000...000` and `"#"`), each
-// appearing in exactly one place in the file. That's what this script edits.
-// If you ever regenerate index.html from Claude Design, re-verify these
-// match counts still hold before trusting this script again.
+// Requires ADMIN_SECRET to match whatever was set as a secret on the
+// hoodrich Pages project (Settings > Variables and secrets). Ask whoever
+// set that up if you don't have it — it is NOT stored in this repo.
 //
 // Usage:
-//   node scripts/set-ca.js 0xYourRealTokenAddress
+//   ADMIN_SECRET=... node scripts/set-ca.js 0xYourRealTokenAddress [baseUrl]
 
-const fs = require("fs");
-const path = require("path");
-const { execFileSync } = require("child_process");
-
-const INDEX_PATH = path.join(__dirname, "..", "index.html");
-const PLACEHOLDER_CA = "0x0000000000000000000000000000000000000000";
-
-function fail(msg) {
-  console.error(msg);
-  process.exit(1);
-}
-
-function main() {
+async function main() {
   const ca = process.argv[2];
+  const baseUrl = process.argv[3] || "https://hoodrich.bond";
+  const secret = process.env.ADMIN_SECRET;
 
   if (!ca) {
-    fail("Usage: node scripts/set-ca.js 0xYourRealTokenAddress");
+    console.error("Usage: ADMIN_SECRET=... node scripts/set-ca.js 0xYourRealTokenAddress [baseUrl]");
+    process.exit(1);
+  }
+  if (!secret) {
+    console.error("Missing ADMIN_SECRET env var — this must match the secret set on the hoodrich Pages project.");
+    process.exit(1);
   }
   if (!/^0x[0-9a-fA-F]{40}$/.test(ca)) {
-    fail(`"${ca}" doesn't look like a valid contract address (expected 0x + 40 hex chars).`);
-  }
-  const buyUrl = `https://www.ponsfamily.com/launchpad/${ca}`;
-
-  let html = fs.readFileSync(INDEX_PATH, "utf8");
-
-  const caCount = html.split(PLACEHOLDER_CA).length - 1;
-  if (caCount === 0) {
-    fail("Placeholder contract address not found — has index.html already been updated, or changed shape?");
-  }
-  html = html.split(PLACEHOLDER_CA).join(ca);
-
-  // These two exact substrings are the schema default and the JS fallback
-  // for the buyUrl prop. Verified to occur exactly once each in the bundle
-  // as shipped — if that ever changes, this will silently under- or
-  // over-replace, so the counts are checked before touching anything.
-  const schemaDefault = 'default&quot;:&quot;#&quot;';
-  const jsFallback = '?? \\"#\\"';
-
-  const schemaCount = html.split(schemaDefault).length - 1;
-  const jsCount = html.split(jsFallback).length - 1;
-  if (schemaCount !== 1 || jsCount !== 1) {
-    fail(
-      `Expected exactly 1 buyUrl schema default and 1 JS fallback, found ${schemaCount} and ${jsCount}. ` +
-        "The bundle shape changed — stop and check index.html by hand before rerunning."
-    );
+    console.error(`"${ca}" doesn't look like a valid contract address (expected 0x + 40 hex chars).`);
+    process.exit(1);
   }
 
-  html = html.replace(schemaDefault, `default&quot;:&quot;${buyUrl}&quot;`);
-  html = html.replace(jsFallback, `?? \\"${buyUrl}\\"`);
+  console.log(`Setting CA on ${baseUrl} to ${ca} ...`);
+  const res = await fetch(`${baseUrl}/admin/set-ca`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-admin-secret": secret },
+    body: JSON.stringify({ ca }),
+  });
 
-  fs.writeFileSync(INDEX_PATH, html);
-  console.log(`Set contract address (${caCount} occurrence${caCount === 1 ? "" : "s"}) to ${ca}`);
-  console.log(`Set buy URL to ${buyUrl}`);
+  const text = await res.text();
+  if (!res.ok) {
+    console.error(`FAILED (${res.status}): ${text}`);
+    process.exit(1);
+  }
 
-  const cwd = path.join(__dirname, "..");
-  execFileSync("git", ["add", "index.html"], { cwd, stdio: "inherit" });
-  execFileSync(
-    "git",
-    [
-      "commit",
-      "-m",
-      `Set launch contract address and buy link\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`,
-    ],
-    { cwd, stdio: "inherit" }
-  );
-  execFileSync("git", ["push"], { cwd, stdio: "inherit" });
-
-  console.log("\nPushed. Cloudflare Pages will redeploy automatically — check hoodrich.bond in a minute or two.");
+  console.log(`Done: ${text}`);
+  console.log("Check hoodrich.bond now — it should already show the real contract address.");
 }
 
 main();
